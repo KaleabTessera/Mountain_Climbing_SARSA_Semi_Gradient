@@ -60,6 +60,8 @@ def SARSA_semi_gradient(env, value_function, num_episodes, discount_factor=1.0, 
         episode_lengths=np.zeros(num_episodes),
         episode_rewards=np.zeros(num_episodes))
 
+    q = value_function.__call__
+
     for i_episode in range(num_episodes):
         if(print_ and ((i_episode + 1) % 100 == 0)):
             print("\rEpisode {}/{}.".format(i_episode + 1, num_episodes), end="")
@@ -74,10 +76,11 @@ def SARSA_semi_gradient(env, value_function, num_episodes, discount_factor=1.0, 
             stats.episode_lengths[i_episode] = j
 
             if(done):
-                value_function.update(reward, state, action)
+                value_function.update(reward+q(state, action), state, action)
                 break
             next_action = value_function.act(next_state, epsilon)
-            value_function.update(reward, next_state, next_action)
+            value_function.update(reward+discount_factor*q(
+                next_state, next_action)-q(state, action), next_state, next_action)
             state = next_state
             action = next_action
             # env.render()
@@ -88,7 +91,7 @@ def SARSA_semi_gradient(env, value_function, num_episodes, discount_factor=1.0, 
 def main():
     env = gym.make('MountainCar-v0')
     value_function = ValueFunction(alpha=0.1, n_actions=env.action_space.n)
-    num_runs = 2
+    num_runs = 1
     episode_lengths_total = pd.DataFrame([])
     for i in range(num_runs):
         stats = SARSA_semi_gradient(env, value_function, 500, print_=True)
