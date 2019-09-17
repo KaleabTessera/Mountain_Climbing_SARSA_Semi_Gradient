@@ -1,4 +1,5 @@
 import gym
+from gym import wrappers
 import random
 import numpy as np
 from value_function import ValueFunction
@@ -8,53 +9,28 @@ import itertools
 import matplotlib
 import matplotlib.pyplot as plt
 import pandas as pd
+
 EpisodeStats = namedtuple("Stats", ["episode_lengths", "episode_rewards"])
 
 
-def td_plot_episode_stats(stats, algor_name="", smoothing_window=10):
-    # Plot the episode length over time
-
+def plot_average_performance(episode_stats, algor_name, num_runs):
     fig = plt.figure(figsize=(10, 10))
-    st = fig.suptitle(algor_name, fontsize="large")
 
-    # fig1 = plt.figure(figsize=(10, 5))
-    ax1 = fig.add_subplot(311)
-    ax1.plot(stats.episode_lengths)
+    ax = fig.add_subplot()
     plt.xlabel("Episode")
     plt.ylabel("Episode Length")
-    ax1.set_title("Episode Length over Time")
+    ax.set_title(f"Episode Length over Time (averaged over {num_runs} runs)")
 
-    # Plot the episode reward over time
-    # fig2 = plt.figure(figsize=(10, 5))
-    ax2 = fig.add_subplot(312)
-    rewards_smoothed = pd.Series(stats.episode_rewards).rolling(
-        smoothing_window, min_periods=smoothing_window).mean()
-    ax2.plot(rewards_smoothed)
-    plt.xlabel("Episode")
-    plt.ylabel("Episode Reward (Smoothed)")
-    ax2.set_title("Episode Reward over Time (Smoothed over window size {})".format(
-        smoothing_window))
+    average = episode_stats.mean()
+    average.plot(ax=ax)
 
-    # Plot time steps and episode number
-    # fig3 = plt.figure(figsize=(10, 5))
-    ax3 = fig.add_subplot(313)
-    ax3.plot(np.cumsum(stats.episode_lengths),
-             np.arange(len(stats.episode_lengths)))
-    plt.xlabel("Time Steps")
-    plt.ylabel("Episode")
-    ax3.set_title("Episode per time step")
-
-    fig.tight_layout()
-
-    # shift subplots down:
-    st.set_y(0.99)
-    fig.subplots_adjust(top=0.93)
-
-    fig.savefig(algor_name + "_td_plot_episode_stats.png")
+    fig.savefig(algor_name + "_normal_y_scale.png")
+    ax.set_yscale('log')
+    fig.savefig(algor_name + "_log_y_scale.png")
     plt.show(block=False)
 
 
-def SARSA_semi_gradient(env, value_function, num_episodes, discount_factor=1.0, epsilon=0.1, alpha=0.1, print_=False):
+def SARSA_semi_gradient(env, value_function, num_episodes, discount_factor=1.0, epsilon=0.1, alpha=0.1, print_=False, record_animation=False):
     # Keeps track of useful statistics
     stats = EpisodeStats(
         episode_lengths=np.zeros(num_episodes),
@@ -66,6 +42,10 @@ def SARSA_semi_gradient(env, value_function, num_episodes, discount_factor=1.0, 
         if(print_ and ((i_episode + 1) % 100 == 0)):
             print("\rEpisode {}/{}.".format(i_episode + 1, num_episodes), end="")
 
+        # Exploit and record animation once we have learned q value
+        if(i_episode == num_episodes-1 and record_animation):
+            epsilon = 0
+
         state = env.reset()
         action = value_function.act(state, epsilon)
 
@@ -76,29 +56,52 @@ def SARSA_semi_gradient(env, value_function, num_episodes, discount_factor=1.0, 
             stats.episode_lengths[i_episode] = j
 
             if(done):
-                value_function.update(reward+q(state, action), state, action)
+                target = reward
+                value_function.update(target, state, action)
                 break
-            next_action = value_function.act(next_state, epsilon)
-            value_function.update(reward+discount_factor*q(
-                next_state, next_action)-q(state, action), next_state, next_action)
+            else:
+                # Estimate q-value at next state-action
+                next_action = value_function.act(next_state, epsilon)
+                q_new = q(next_state, next_action)
+                target = reward + discount_factor * q_new
+
+                value_function.update(target, state, action)
             state = next_state
             action = next_action
-            # env.render()
 
     return stats
 
 
-def main():
+def run_sarsa_semi_gradient(num_episodes=500, num_runs=1):
     env = gym.make('MountainCar-v0')
-    value_function = ValueFunction(alpha=0.1, n_actions=env.action_space.n)
-    num_runs = 1
+    env._max_episode_steps = 10000
     episode_lengths_total = pd.DataFrame([])
     for i in range(num_runs):
-        stats = SARSA_semi_gradient(env, value_function, 500, print_=True)
+        print(f"\n Run {i+1} of {num_runs} \n")
+        value_function = ValueFunction(alpha=0.1, n_actions=env.action_space.n)
+        stats = SARSA_semi_gradient(
+            env, value_function, num_episodes, print_=True)
         episode_lengths_total = episode_lengths_total.append(
             pd.DataFrame(stats.episode_lengths).T)
-    print(episode_lengths_total)
-    # td_plot_episode_stats(stats, "SARSA Semi Gradient")
+    env.close()
+
+    plot_average_performance(
+        episode_lengths_total, "SARSA_Semi-Gradient_for_Mountain_Car_Environment", num_runs)
+
+
+def animate_environment(num_episodes=500):
+    print(" \n Animating the last episode")
+    env = gym.make("MountainCar-v0")
+    env._max_episode_steps = 10000
+    env = gym.wrappers.Monitor(env, './video/', video_callable=lambda episode_id: episode_id==num_episodes-1,force = True)
+    value_function = ValueFunction(alpha=0.1, n_actions=env.action_space.n)
+    stats = SARSA_semi_gradient(
+        env, value_function, num_episodes,  print_=True, record_animation=True)
+    env.close()
+
+def main():
+    run_sarsa_semi_gradient(num_episodes=500,num_runs=1)
+    animate_environment(num_episodes=500)
 
 
 if __name__ == "__main__":
